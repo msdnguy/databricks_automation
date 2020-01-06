@@ -1,0 +1,255 @@
+pool:
+  name: Azure Pipelines
+#Your build pipeline references an undefined variable named ‘Tenantid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxclientid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxadlspwd’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘Tenantid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxclientid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxadlspwd’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxresourceid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘subscriptionid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘resourcegroupname’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxworkspacename’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘subscriptionid’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘resourcegroupname’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘dbxworkspacename’. Stored in Keyvaultlink.
+#Your build pipeline references an undefined variable named ‘PAT2’. exported variable
+
+steps:
+- task: AzurePowerShell@4
+  displayName: 'Define the Cluster name'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+   
+     
+     $clustername = "$env:BUILD_DEFINITIONNAME$env:BUILD_BUILDNUMBER"
+     Write-Host $clustername
+     
+     Write-Host "##vso[task.setvariable variable=clustername2]$clustername"
+     
+     
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Get Management token'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     Write-Host Clustername is $env:CLUSTERNAME2
+     $headers = @{"Content-Type"="application/x-www-form-urlencoded"}
+     
+     $uri='https://login.microsoftonline.com/$(Tenantid)/oauth2/token'
+     
+     $postParams=@{grant_type='client_credentials'; client_id= '$(dbxclientid)'; client_secret= '$(dbxadlspwd)';resource= 'https://management.core.windows.net/'}
+     Write-Host $uri
+     $managementtoken = (Invoke-RestMethod -Uri $uri  -Method Post -Body $postParams -Headers $headers ).access_token
+     Write-Host $managementtoken
+     
+     Write-Host "##vso[task.setvariable variable=managementtoken2]$managementtoken"
+     
+     
+     
+     
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Get access token for DBX'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     $headers = @{"Content-Type"="application/x-www-form-urlencoded"}
+     
+     $uri='https://login.microsoftonline.com/$(Tenantid)/oauth2/token'
+     
+     $postParams=@{grant_type='client_credentials'; client_id= '$(dbxclientid)'; client_secret= '$(dbxadlspwd)';resource= '$(dbxresourceid)'}
+     Write-Host $uri
+     $accesstoken= (Invoke-RestMethod -Uri $uri  -Method Post -Body $postParams -Headers $headers ).access_token
+     Write-Host $accesstoken
+     
+     Write-Host "##vso[task.setvariable variable=accesstoken2]$accesstoken"
+     Write-Host This is the access token $accesstoken
+     
+     
+     
+     
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Create a PAT token'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     
+     Write-Host This is my access token $env:ACCESSTOKEN2
+     Write-Host  This is my management token $env:MANAGEMENTTOKEN2
+     
+     $headers = @{"Content-Type"="application/x-www-form-urlencoded";"X-Databricks-Azure-Workspace-Resource-Id"="/subscriptions/$(subscriptionid)/resourceGroups/$(resourcegroupname)/providers/Microsoft.Databricks/workspaces/$(dbxworkspacename)" ; "X-Databricks-Azure-SP-Management-Token" = $env:MANAGEMENTTOKEN2; Authorization="Bearer $env:ACCESSTOKEN2"}
+     
+     
+     $uri='https://eastus.azuredatabricks.net/api/2.0/token/create'
+     
+     #$body=@{lifetime_seconds : "250"}
+     $Projectbody = '{
+     
+         "lifetime_seconds": "5000"
+         
+         }'
+     
+     $pat= (Invoke-RestMethod -Uri $uri  -Method Post -Body $body -Headers $headers ).token_value
+     
+     Write-Host $pat
+     Write-Host "##vso[task.setvariable variable=pat2]$pat"
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Create cluster'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     
+     Write-Host $env:PAT2
+     
+     $uri = ' https://eastus.azuredatabricks.net/api/2.0/clusters/create'
+     $clustername = $env:CLUSTERNAME2
+     $header = @{"Content-Type"="application/x-www-form-urlencoded"; "X-Databricks-Azure-SP-Management-Token" = "$env:MANAGEMENTTOKEN2"; "X-Databricks-Azure-Workspace-Resource-Id" = "/subscriptions/$(subscriptionid)/resourceGroups/$(resourcegroupname)/providers/Microsoft.Databricks/workspaces/$(dbxworkspacename)";Authorization = "Bearer $env:PAT2"
+         }
+     
+     
+     $spark_version = '6.2.x-scala2.11'
+     
+     $Projectbody = '{
+     
+         "cluster_name": "'+$clustername+'",
+         "node_type_id": "Standard_D3_v2",
+         "spark_version": "'+$spark_version+'", 
+         "autotermination_minutes":"225",
+         "autoscale": {
+                        "min_workers": "2", 
+                        "max_workers": "4" 
+             }
+         }'
+     $clusterid= (Invoke-RestMethod -Headers $header -uri $uri -Body $Projectbody -Method Post).cluster_id
+     Write-Host $clusterid
+     Write-Host "##vso[task.setvariable variable=clusterid2]$clusterid"
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'get cluster info'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     
+     $uri =  "https://eastus.azuredatabricks.net/api/2.0/clusters/get?cluster_id=$env:CLUSTERID2"
+     
+     $header = @{"Content-Type"="application/x-www-form-urlencoded" ; Authorization = "Bearer $env:PAT2"
+         }
+     
+     do
+     {$getcluster= (Invoke-RestMethod -uri $uri -Headers $header  -Method Get).state}
+     Until ($getcluster -eq "RUNNING")
+     Write-Host  Cluster status is: $getcluster
+     
+    azurePowerShellVersion: LatestVersion
+
+- task: DataThirstLtd.databricksDeployScriptsTasks.databricksDeployScriptsTask.databricksDeployScripts@0
+  displayName: 'Databricks Notebooks deployment'
+  inputs:
+    bearerToken: '$(PAT2)'
+    region: eastus
+    localPath: notebooks/Shared/Automation/
+
+- task: AzurePowerShell@4
+  displayName: 'Create DBX Job'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     $header = @{"Content-Type"="application/x-www-form-urlencoded" ; Authorization = "Bearer $env:PAT2"
+     }
+     $jobname = "'+$env:BUILD_BUILDNUMBER+'"
+     $projectbody = '{
+        "name": "+$jobname+",
+        "existing_cluster_id" : "'+$env:CLUSTERID2+'",
+       "timeout_seconds": "3600",
+        "max_retries": 1,
+        "retry_on_timeout": "TRUE", 
+        "notebook_task" : {
+             "notebook_path" : "/Shared/Automation/helloworld"
+        }
+     }'
+     
+     
+     $uri = "https://eastus.azuredatabricks.net/api/2.0/jobs/create"
+     
+     $Job_Id= (Invoke-RestMethod -uri $uri -Body $projectbody -Headers $header -Method Post -ContentType application/json).job_id
+     Write-Host JobID is $Job_ID
+     Write-Host "##vso[task.setvariable variable=JOBID2]$Job_ID"
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Run DBX Job'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     $header = @{"Content-Type"="application/x-www-form-urlencoded" ; Authorization = "Bearer $env:PAT2"
+     }
+     $jobid = "$env:JOBID2"
+     $projectbody = '{
+       "job_id": "'+$jobid+'" ,
+       "notebook_params": 
+         {
+         "dry-run": "false"
+         }
+     }'
+     
+     
+     $uri = "https://eastus.azuredatabricks.net/api/2.0/jobs/run-now"
+     
+     $RunID= (Invoke-RestMethod -uri $uri -Body $projectbody -Headers $header -Method Post -ContentType application/json).run_id
+     Write-Host run ID is $RunID
+     Write-Host "##vso[task.setvariable variable=RUNID2]$RunID"
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Wait for Success'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     sleep -Seconds 20
+     $Run_ID = "env:RUNID2"
+     $uri_state = "https://eastus.azuredatabricks.net/api/2.0/jobs/runs/get?run_id=$RunI_ID"
+     $header_state = @{"Content-Type"="application/x-www-form-urlencoded" ; Authorization = "Bearer env:PAT2"}
+     
+     #do
+       #  {$RunStatus= (Invoke-RestMethod -uri $uri_state  -Headers $header_state -Method Get).state.life_cycle_state}
+     #Until ($RunStatus -eq "TERMINATED")
+     #Write-Host  Run status is: $RunStatus
+    azurePowerShellVersion: LatestVersion
+
+- task: AzurePowerShell@4
+  displayName: 'Destroy cluster'
+  inputs:
+    azureSubscription: 'dev-dbx workshop KV1'
+    ScriptType: InlineScript
+    Inline: |
+     $uri =  "https://eastus.azuredatabricks.net/api/2.0/clusters/permanent-delete"
+     $header = @{"Content-Type"="application/x-www-form-urlencoded" ; Authorization = "Bearer $env:PAT2"
+         }
+     
+     $projectbody = '{
+     
+         "cluster_id" : "'+$env:CLUSTERID2+'"
+     }'
+     
+     $deletecluster = (Invoke-RestMethod -uri $uri -Body $projectbody -Headers $header -Method Post)
+     Write-Host $deletecluster
+    azurePowerShellVersion: LatestVersion
