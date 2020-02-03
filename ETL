@@ -1,0 +1,8 @@
+1)	Setup an automatic/secure way to create Azure Databricks Environment, using Postman REST APIs
+2)	 Create ITD_summary file , load  data & corresponding schema files in in ADLS2   
+3)   Created Spark ETL databricks notebook(s) to implement logic:
+i.   Create connection to ADLS2 by fetching SA (app_id) secret from KayVault (grant SA role/permission on ADLS2)
+ii.   Connect to ADLS2 , SQL DW as SA (app_id)
+iii.   Read data files from ADLS (use databricks delta)   –  (explore if this is better than creating dataframe on files)
+iv.   Implement ITD transaction summary logic in sparkSQL using databricks delta tables ( explore if pyspark / dataframes is better than delta)
+v.   Write ITD_summary output file to ADLS2 in /refined/<date>/<file_name> folder and merge into PL_ITD_Summary SQL DW table
